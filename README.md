@@ -204,13 +204,6 @@ cmake --build build --config Release   # -> build\Release\RIFE-OpenVINO.dll
 the plugin together with the needed OpenVINO runtime files, smoke-tests that the packaged plugin loads with
 only those files next to it, uploads the result as an artifact and creates a release on `v*` tags.
 
-`ci/github-workflow-build.yml` is the maintained copy of that workflow: the credentials used to push this fork
-are not allowed to touch `.github/workflows/`, so after pulling a change to it, sync it with
-
-```sh
-cp ci/github-workflow-build.yml .github/workflows/build.yml && git add .github && git commit -m "Sync CI workflow"
-```
-
 ## Scripts
 
 - `scripts/download_models.py` - downloads `rife_*.7z` packs from the vs-mlrt
