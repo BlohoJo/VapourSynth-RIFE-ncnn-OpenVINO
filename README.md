@@ -180,7 +180,9 @@ are `fps * factor_num / factor_den` and `num_frames * factor_num / factor_den`.
    on `PATH`. The CI artifact `VapourSynth-RIFE-OpenVINO-win64.zip` already contains this exact set.
 3. Put `RIFE-OpenVINO.dll` into your VapourSynth plugins folder (or `LoadPlugin` it).
 4. `python scripts\download_models.py v4.26 --out <plugins folder>\models` (needs 7-Zip's `7z.exe` on PATH or
-   `pip install py7zr`).
+   `pip install py7zr`). If the download stops with `CERTIFICATE_VERIFY_FAILED`, your Python's certificate store
+   lacks GitHub's root CA (common with python.org builds); `pip install certifi` and re-run - the script falls
+   back to certifi's bundle, then to `curl.exe`, and prints further options if neither is available.
 
 ## Compilation
 
@@ -213,7 +215,9 @@ cp ci/github-workflow-build.yml .github/workflows/build.yml && git add .github &
 
 - `scripts/download_models.py` - downloads `rife_*.7z` packs from the vs-mlrt
   [external-models](https://github.com/AmusementClub/vs-mlrt/releases/tag/external-models) release and extracts
-  the ONNX files with the expected names (`--v2` also keeps the 7-channel `rife_v2` variants).
+  the ONNX files with the expected names (`--v2` also keeps the 7-channel `rife_v2` variants). Falls back to
+  the `certifi` CA bundle and then to the system `curl` when Python cannot verify GitHub's certificate;
+  `--insecure` disables verification as a last resort.
 - `scripts/benchmark.py` - raw inference benchmark: OpenVINO CPU f32 / bf16 vs ONNX Runtime CPU on a given
   ONNX file and resolution, printing ms/frame and fps (`pip install openvino numpy`, optionally `onnxruntime`).
 - `scripts/convert_to_ir.py` - optional ONNX -> OpenVINO IR (`.xml` + `.bin`) conversion, optionally with a fixed
