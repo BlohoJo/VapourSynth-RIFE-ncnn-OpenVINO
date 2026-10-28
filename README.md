@@ -235,7 +235,16 @@ a time (`threads=1`, LATENCY) or several independent ones (`threads>1`, THROUGHP
   VapourSynth's `core.num_threads` so enough frames are requested in parallel.
 - **`precision="bf16"`**: ~10-25 % faster on Zen 4/5 thanks to AVX-512 BF16. Compare a few frames against f32
   if you are picky about accuracy; the difference is normally far below what is visible after encoding.
-- **`ov_threads=32`** (all SMT threads) is rarely faster than 16 for convolution workloads; measure.
+- **`ov_threads=32`** (all SMT threads): measured on a 9950X, 32 threads were ~5-10 % faster than 16 for
+  1080p (the memory-bound layers below profit from more threads in flight even though the FMA units are shared);
+  measure for your model and resolution.
+- **Where a 1080p frame goes** (`scripts/profile.py`, 9950X, 16 threads, f32): only 10 % of `rife_v4.25` and
+  19 % of `rife_v4.25_heavy` is convolution. The rest is data movement at full resolution - the five
+  optical-flow warps (`GridSample`, ~17-19 %), tensor `Concat`/`Split` between the flow blocks (~25-30 %),
+  layout conversions (`Reorder`, ~15 %) and resizes - and those layers are identical in every RIFE 4.x
+  variant and scale poorly with core count (≈2.5-3x from 1 to 16 cores versus ≈15x for the convolutions).
+  This is why the heavy models cost almost nothing extra on a many-core CPU, and why `threads=2..4` with
+  `hint="throughput"` (several frames in flight) is the most promising lever for total fps.
 - **`cache_dir`** removes the ONNX import + graph compilation (a few hundred ms to a couple of seconds for 4K)
   on each script start.
 - Keep the input at the real content resolution; padding is only to the next multiple of 64, but 4K at

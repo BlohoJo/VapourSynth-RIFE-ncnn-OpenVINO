@@ -22,7 +22,8 @@ ap.add_argument("--height", type=int, default=1080)
 ap.add_argument("--pad", type=int, default=64, help="pad dimensions to a multiple of this (plugin uses 32 or 64)")
 ap.add_argument("--precision", default="f32", choices=["f32", "bf16", "f16"])
 ap.add_argument("--hint", default="latency", choices=["latency", "throughput"])
-ap.add_argument("--threads", type=int, default=0, help="inference threads (0 = OpenVINO default)")
+ap.add_argument("--threads", type=int, default=0,
+                help="inference threads (0 = OpenVINO default: one per physical core; a value above that enables SMT)")
 ap.add_argument("--iters", type=int, default=8)
 ap.add_argument("--top", type=int, default=10, help="number of slowest layers to list")
 a = ap.parse_args()
@@ -35,6 +36,9 @@ m.reshape({m.inputs[0].get_any_name(): [1, m.inputs[0].get_partial_shape()[1].ge
 props = {"PERF_COUNT": True, "PERFORMANCE_HINT": a.hint.upper(), "INFERENCE_PRECISION_HINT": a.precision}
 if a.threads:
     props["INFERENCE_NUM_THREADS"] = a.threads
+    # Like benchmark.py and the plugin's ov_threads: without this the CPU plugin
+    # silently caps the count at the number of physical cores under LATENCY.
+    props["ENABLE_HYPER_THREADING"] = True
 cm = core.compile_model(m, "CPU", props)
 req = cm.create_infer_request()
 x = np.random.rand(*m.inputs[0].shape).astype(np.float32)
@@ -56,7 +60,8 @@ for pc in req.profiling_info:
     bytype[pc.node_type] += us
     rows.append((us, pc.node_type, pc.exec_type, pc.node_name))
 
-print(f"{a.model}  {W}x{H}  {a.precision}  hint={a.hint}  threads={cm.get_property('INFERENCE_NUM_THREADS')}")
+print(f"{a.model}  {W}x{H}  {a.precision}  hint={a.hint}  threads={cm.get_property('INFERENCE_NUM_THREADS')}"
+      f" (requested {a.threads or 'default'}, hyper-threading {cm.get_property('ENABLE_HYPER_THREADING')})")
 print(f"cpu: {core.get_property('CPU', 'FULL_DEVICE_NAME').strip()}")
 print(f"frame time: {np.median(ts) * 1000:.1f} ms median / {min(ts) * 1000:.1f} ms best of {a.iters}  "
       f"(sum of layer counters {total / 1000:.1f} ms)\n")
