@@ -211,6 +211,9 @@ only those files next to it, uploads the result as an artifact and creates a rel
   the ONNX files with the expected names (`--v2` also keeps the 7-channel `rife_v2` variants). Falls back to
   the `certifi` CA bundle and then to the system `curl` when Python cannot verify GitHub's certificate;
   `--insecure` disables verification as a last resort.
+- `scripts/profile.py` - per-layer breakdown of a frame on the OpenVINO CPU device (time per operation type
+  and the slowest layers, from OpenVINO's performance counters), useful to see how much of a frame is convolution
+  compute versus warps/resizes/layout changes (`pip install openvino numpy`).
 - `scripts/benchmark.py` - raw inference benchmark: OpenVINO CPU f32 / bf16 vs ONNX Runtime CPU on a given
   ONNX file and resolution, printing ms/frame and fps (`pip install openvino numpy`, optionally `onnxruntime`).
 - `scripts/convert_to_ir.py` - optional ONNX -> OpenVINO IR (`.xml` + `.bin`) conversion, optionally with a fixed
