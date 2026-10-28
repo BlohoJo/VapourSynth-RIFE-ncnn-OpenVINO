@@ -35,6 +35,30 @@ add_library(rife_openvino MODULE
 target_include_directories(rife_openvino PRIVATE RIFE)
 target_link_libraries(rife_openvino PRIVATE openvino::runtime Threads::Threads)
 
+# libopenvino.so pulls in libtbb.so.12 but carries no rpath of its own, so on Linux a
+# plugin shipped with the OpenVINO runtime next to it would still need a *system*
+# libtbb12. Linking TBB directly (and forcing the DT_NEEDED entry even though the plugin
+# itself calls no TBB symbol) makes libtbb resolve through the plugin's $ORIGIN rpath.
+#
+# The shared OpenVINO package does not export a TBB target itself, so look for the
+# oneTBB bundled with the archive (runtime/3rdparty/tbb) first, then a system oneTBB.
+if(NOT WIN32)
+    if(NOT TARGET TBB::tbb)
+        find_package(TBB CONFIG QUIET COMPONENTS tbb
+            PATHS "${OpenVINO_DIR}/../3rdparty/tbb" "${OpenVINO_DIR}/../3rdparty/tbb/lib/cmake/TBB"
+            NO_DEFAULT_PATH)
+    endif()
+    if(NOT TARGET TBB::tbb)
+        find_package(TBB CONFIG QUIET COMPONENTS tbb)
+    endif()
+    if(TARGET TBB::tbb)
+        message(STATUS "Linking TBB directly: ${TBB_DIR}")
+        target_link_libraries(rife_openvino PRIVATE -Wl,--no-as-needed TBB::tbb -Wl,--as-needed)
+    else()
+        message(WARNING "oneTBB CMake config not found; the plugin will rely on a system libtbb12 at run time")
+    endif()
+endif()
+
 if(WIN32)
     # Output: RIFE-OpenVINO.dll
     set_target_properties(rife_openvino PROPERTIES OUTPUT_NAME "RIFE-OpenVINO" PREFIX "")
@@ -47,8 +71,12 @@ else()
     set_target_properties(rife_openvino PROPERTIES OUTPUT_NAME "rife_openvino" PREFIX "lib" SUFFIX ".so")
     # Let the plugin find libopenvino.so next to itself (./ or ./openvino/) and in the
     # OpenVINO directory it was linked against, without LD_LIBRARY_PATH tweaks.
+    # The same rpath is used for the build output and the installed file, so a
+    # librife_openvino.so copied straight out of build/ (as the CI artifact is)
+    # also resolves $ORIGIN first.
     set_target_properties(rife_openvino PROPERTIES
         BUILD_RPATH_USE_ORIGIN ON
+        BUILD_WITH_INSTALL_RPATH ON
         INSTALL_RPATH "$ORIGIN;$ORIGIN/openvino"
         INSTALL_RPATH_USE_LINK_PATH ON)
     target_compile_options(rife_openvino PRIVATE -Wall -Wextra -fno-math-errno -fno-trapping-math)

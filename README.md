@@ -155,9 +155,11 @@ are `fps * factor_num / factor_den` and `num_frames * factor_num / factor_den`.
 2. Get the OpenVINO runtime (2026.4.1 was used for development):
    [`openvino_toolkit_ubuntu24_2026.4.1.22982.07f9c262b05_x86_64.tgz`](https://storage.openvinotoolkit.org/repositories/openvino/packages/2026.4.1/linux/openvino_toolkit_ubuntu24_2026.4.1.22982.07f9c262b05_x86_64.tgz).
    The plugin needs `libopenvino.so.*`, `libopenvino_intel_cpu_plugin.so`, `libopenvino_onnx_frontend.so.*`,
-   `libopenvino_ir_frontend.so.*`, `plugins.xml` (all in `runtime/lib/intel64/`) and `libtbb.so.12`
-   (`runtime/3rdparty/tbb/lib/` or your distro's `libtbb12`). Either put them **next to the plugin** (the plugin
-   has `$ORIGIN` and `$ORIGIN/openvino` in its rpath), keep the extracted archive and add
+   `libopenvino_ir_frontend.so.*` (all in `runtime/lib/intel64/`) and `libtbb.so.12`
+   (`runtime/3rdparty/tbb/lib/` or your distro's `libtbb12`). OpenVINO 2024+ registers its device plugins
+   statically, so there is no `plugins.xml` to copy (`cache.json` from the same directory is optional).
+   Either put them **next to the plugin** (the plugin has `$ORIGIN` and `$ORIGIN/openvino` in its rpath, and
+   links `libtbb` directly so it is found there too), keep the extracted archive and add
    `runtime/lib/intel64` to `LD_LIBRARY_PATH` (`source <archive>/setupvars.sh` does that), or install the
    runtime system-wide.
 3. Copy `librife_openvino.so` into your VapourSynth plugin directory (e.g. `/usr/local/lib/vapoursynth`) or load
@@ -171,9 +173,11 @@ are `fps * factor_num / factor_den` and `num_frames * factor_num / factor_den`.
 2. Download the OpenVINO Windows archive
    [`openvino_toolkit_windows_2026.4.1.22982.07f9c262b05_x86_64.zip`](https://storage.openvinotoolkit.org/repositories/openvino/packages/2026.4.1/windows/openvino_toolkit_windows_2026.4.1.22982.07f9c262b05_x86_64.zip)
    and copy from `runtime\bin\intel64\Release\`: `openvino.dll`, `openvino_intel_cpu_plugin.dll`,
-   `openvino_onnx_frontend.dll`, `openvino_ir_frontend.dll`, `plugins.xml`, plus `tbb12.dll` (and the other
-   `tbb*.dll`) from `runtime\3rdparty\tbb\bin\`. Put them **in the same folder as `RIFE-OpenVINO.dll`** (the
-   VapourSynth plugins folder) or anywhere on `PATH`.
+   `openvino_onnx_frontend.dll`, `openvino_ir_frontend.dll` (there is no `plugins.xml` in OpenVINO 2024+;
+   `cache.json` is optional), plus `tbb12.dll` (and `tbbbind_2_5.dll`, `tbbmalloc.dll`) from
+   `runtime\3rdparty\tbb\bin\`. Put them **in the same folder as `RIFE-OpenVINO.dll`** (VapourSynth loads
+   plugins with `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`, so dependencies next to the plugin are found) or anywhere
+   on `PATH`. The CI artifact `VapourSynth-RIFE-OpenVINO-win64.zip` already contains this exact set.
 3. Put `RIFE-OpenVINO.dll` into your VapourSynth plugins folder (or `LoadPlugin` it).
 4. `python scripts\download_models.py v4.26 --out <plugins folder>\models` (needs 7-Zip's `7z.exe` on PATH or
    `pip install py7zr`).
@@ -194,13 +198,15 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DOpenVINO_DIR=C:\path\to\
 cmake --build build --config Release   # -> build\Release\RIFE-OpenVINO.dll
 ```
 
-`ci/github-workflow-build.yml` is a GitHub Actions workflow that builds both platforms the same way and uploads
-the plugin together with the needed OpenVINO runtime files (and creates a release on `v*` tags). It is stored
-outside `.github/workflows/` because the credentials used to push this fork cannot create workflow files; to
-enable it, move it in place:
+`.github/workflows/build.yml` is a GitHub Actions workflow that builds both platforms the same way, packages
+the plugin together with the needed OpenVINO runtime files, smoke-tests that the packaged plugin loads with
+only those files next to it, uploads the result as an artifact and creates a release on `v*` tags.
+
+`ci/github-workflow-build.yml` is the maintained copy of that workflow: the credentials used to push this fork
+are not allowed to touch `.github/workflows/`, so after pulling a change to it, sync it with
 
 ```sh
-mkdir -p .github/workflows && git mv ci/github-workflow-build.yml .github/workflows/build.yml
+cp ci/github-workflow-build.yml .github/workflows/build.yml && git add .github && git commit -m "Sync CI workflow"
 ```
 
 ## Scripts
