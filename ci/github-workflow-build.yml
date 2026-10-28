@@ -1,0 +1,105 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  OPENVINO_VERSION: 2026.4.1
+  OPENVINO_BUILD: 22982.07f9c262b05
+  OPENVINO_BASE: https://storage.openvinotoolkit.org/repositories/openvino/packages
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download OpenVINO runtime
+        run: |
+          curl -sSL -o openvino.tgz "$OPENVINO_BASE/$OPENVINO_VERSION/linux/openvino_toolkit_ubuntu24_${OPENVINO_VERSION}.${OPENVINO_BUILD}_x86_64.tgz"
+          mkdir openvino && tar xzf openvino.tgz -C openvino --strip-components=1
+
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DOpenVINO_DIR="$PWD/openvino/runtime/cmake"
+          cmake --build build --config Release -j"$(nproc)"
+
+      - name: Package
+        run: |
+          mkdir -p dist/VapourSynth-RIFE-OpenVINO-linux-x64
+          cp build/librife_openvino.so dist/VapourSynth-RIFE-OpenVINO-linux-x64/
+          # runtime libraries needed next to the plugin (or on LD_LIBRARY_PATH)
+          cp openvino/runtime/lib/intel64/libopenvino.so.* \
+             openvino/runtime/lib/intel64/libopenvino_intel_cpu_plugin.so \
+             openvino/runtime/lib/intel64/libopenvino_onnx_frontend.so.* \
+             openvino/runtime/lib/intel64/libopenvino_ir_frontend.so.* \
+             openvino/runtime/lib/intel64/plugins.xml \
+             dist/VapourSynth-RIFE-OpenVINO-linux-x64/
+          cp openvino/runtime/3rdparty/tbb/lib/libtbb.so.* dist/VapourSynth-RIFE-OpenVINO-linux-x64/ || true
+          cp LICENSE README.md dist/VapourSynth-RIFE-OpenVINO-linux-x64/
+          cp -r scripts dist/VapourSynth-RIFE-OpenVINO-linux-x64/
+          cd dist && tar czf VapourSynth-RIFE-OpenVINO-linux-x64.tar.gz VapourSynth-RIFE-OpenVINO-linux-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VapourSynth-RIFE-OpenVINO-linux-x64
+          path: dist/VapourSynth-RIFE-OpenVINO-linux-x64.tar.gz
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download OpenVINO runtime
+        shell: pwsh
+        run: |
+          $url = "$env:OPENVINO_BASE/$env:OPENVINO_VERSION/windows/openvino_toolkit_windows_$($env:OPENVINO_VERSION).$($env:OPENVINO_BUILD)_x86_64.zip"
+          Invoke-WebRequest -Uri $url -OutFile openvino.zip
+          Expand-Archive openvino.zip -DestinationPath ov_tmp
+          $inner = Get-ChildItem ov_tmp | Select-Object -First 1
+          Move-Item $inner.FullName openvino
+
+      - name: Configure and build
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DOpenVINO_DIR="$PWD/openvino/runtime/cmake"
+          cmake --build build --config Release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/VapourSynth-RIFE-OpenVINO-win64 | Out-Null
+          Copy-Item build/Release/RIFE-OpenVINO.dll dist/VapourSynth-RIFE-OpenVINO-win64/
+          # runtime DLLs needed next to the plugin (or on PATH)
+          Copy-Item openvino/runtime/bin/intel64/Release/openvino.dll dist/VapourSynth-RIFE-OpenVINO-win64/
+          Copy-Item openvino/runtime/bin/intel64/Release/openvino_intel_cpu_plugin.dll dist/VapourSynth-RIFE-OpenVINO-win64/
+          Copy-Item openvino/runtime/bin/intel64/Release/openvino_onnx_frontend.dll dist/VapourSynth-RIFE-OpenVINO-win64/
+          Copy-Item openvino/runtime/bin/intel64/Release/openvino_ir_frontend.dll dist/VapourSynth-RIFE-OpenVINO-win64/
+          Copy-Item openvino/runtime/bin/intel64/Release/plugins.xml dist/VapourSynth-RIFE-OpenVINO-win64/
+          Get-ChildItem openvino/runtime/3rdparty/tbb/bin -Filter "tbb*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination dist/VapourSynth-RIFE-OpenVINO-win64/
+          Copy-Item LICENSE, README.md dist/VapourSynth-RIFE-OpenVINO-win64/
+          Copy-Item -Recurse scripts dist/VapourSynth-RIFE-OpenVINO-win64/
+          Compress-Archive -Path dist/VapourSynth-RIFE-OpenVINO-win64 -DestinationPath dist/VapourSynth-RIFE-OpenVINO-win64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VapourSynth-RIFE-OpenVINO-win64
+          path: dist/VapourSynth-RIFE-OpenVINO-win64.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
