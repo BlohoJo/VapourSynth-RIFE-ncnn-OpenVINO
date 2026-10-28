@@ -1,6 +1,12 @@
 MIT License
 
-Copyright (c) 2021-2022 HolyWu
+Copyright (c) 2021-2022 HolyWu (original VapourSynth-RIFE-ncnn-Vulkan plugin)
+Copyright (c) 2022-2025 styler00dollar (VapourSynth-RIFE-ncnn-Vulkan fork)
+Copyright (c) 2026 BlohoJo (VapourSynth-RIFE-OpenVINO: OpenVINO CPU port)
+
+The RIFE ONNX models loaded by this plugin are not part of this repository.
+They are distributed by the vs-mlrt project (AmusementClub) and derived from
+Practical-RIFE by hzwer; both are licensed under the MIT License.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
