@@ -30,19 +30,40 @@ jobs:
 
       - name: Package
         run: |
-          mkdir -p dist/VapourSynth-RIFE-OpenVINO-linux-x64
-          cp build/librife_openvino.so dist/VapourSynth-RIFE-OpenVINO-linux-x64/
-          # runtime libraries needed next to the plugin (or on LD_LIBRARY_PATH)
-          cp openvino/runtime/lib/intel64/libopenvino.so.* \
-             openvino/runtime/lib/intel64/libopenvino_intel_cpu_plugin.so \
-             openvino/runtime/lib/intel64/libopenvino_onnx_frontend.so.* \
-             openvino/runtime/lib/intel64/libopenvino_ir_frontend.so.* \
-             openvino/runtime/lib/intel64/plugins.xml \
-             dist/VapourSynth-RIFE-OpenVINO-linux-x64/
-          cp openvino/runtime/3rdparty/tbb/lib/libtbb.so.* dist/VapourSynth-RIFE-OpenVINO-linux-x64/ || true
-          cp LICENSE README.md dist/VapourSynth-RIFE-OpenVINO-linux-x64/
-          cp -r scripts dist/VapourSynth-RIFE-OpenVINO-linux-x64/
-          cd dist && tar czf VapourSynth-RIFE-OpenVINO-linux-x64.tar.gz VapourSynth-RIFE-OpenVINO-linux-x64
+          set -e
+          D=dist/VapourSynth-RIFE-OpenVINO-linux-x64
+          OV=openvino/runtime/lib/intel64
+          mkdir -p "$D"
+          cp build/librife_openvino.so "$D/"
+          # Runtime libraries needed next to the plugin (or on LD_LIBRARY_PATH).
+          # OpenVINO >= 2024 registers plugins statically; there is no plugins.xml any more
+          # (cache.json is its optional successor and is copied when present).
+          # (cp -a keeps the soname symlinks instead of duplicating the libraries.)
+          cp -a "$OV"/libopenvino.so.* "$D/"
+          cp -a "$OV"/libopenvino_intel_cpu_plugin.so "$D/"
+          cp -a "$OV"/libopenvino_onnx_frontend.so.* "$D/"
+          cp -a "$OV"/libopenvino_ir_frontend.so.* "$D/"
+          [ -f "$OV/cache.json" ] && cp "$OV/cache.json" "$D/" || true
+          cp -a openvino/runtime/3rdparty/tbb/lib/libtbb.so.* "$D/"
+          cp LICENSE README.md "$D/"
+          cp -r scripts "$D/"
+          ls -l "$D"
+          (cd dist && tar czf VapourSynth-RIFE-OpenVINO-linux-x64.tar.gz VapourSynth-RIFE-OpenVINO-linux-x64)
+
+      - name: Smoke test packaged plugin
+        run: |
+          set -e
+          D=dist/VapourSynth-RIFE-OpenVINO-linux-x64
+          # Every shared-library dependency must resolve from the package directory alone.
+          ldd "$D/librife_openvino.so"
+          if ldd "$D/librife_openvino.so" | grep -q "not found"; then echo "unresolved dependency"; exit 1; fi
+          # libopenvino and libtbb must come from the package itself (via the $ORIGIN rpath),
+          # not from whatever the runner happens to have installed system-wide.
+          for lib in libopenvino.so libtbb.so; do
+            ldd "$D/librife_openvino.so" | grep "$lib" | grep -q "$D/" || { echo "$lib not resolved from the package dir"; exit 1; }
+          done
+          # The plugin must be loadable with only the packaged runtime next to it ($ORIGIN rpath).
+          python3 -c "import ctypes,sys; l=ctypes.CDLL(sys.argv[1]); l.VapourSynthPluginInit2; print('plugin loaded OK')" "$PWD/$D/librife_openvino.so"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -72,18 +93,50 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist/VapourSynth-RIFE-OpenVINO-win64 | Out-Null
-          Copy-Item build/Release/RIFE-OpenVINO.dll dist/VapourSynth-RIFE-OpenVINO-win64/
-          # runtime DLLs needed next to the plugin (or on PATH)
-          Copy-Item openvino/runtime/bin/intel64/Release/openvino.dll dist/VapourSynth-RIFE-OpenVINO-win64/
-          Copy-Item openvino/runtime/bin/intel64/Release/openvino_intel_cpu_plugin.dll dist/VapourSynth-RIFE-OpenVINO-win64/
-          Copy-Item openvino/runtime/bin/intel64/Release/openvino_onnx_frontend.dll dist/VapourSynth-RIFE-OpenVINO-win64/
-          Copy-Item openvino/runtime/bin/intel64/Release/openvino_ir_frontend.dll dist/VapourSynth-RIFE-OpenVINO-win64/
-          Copy-Item openvino/runtime/bin/intel64/Release/plugins.xml dist/VapourSynth-RIFE-OpenVINO-win64/
-          Get-ChildItem openvino/runtime/3rdparty/tbb/bin -Filter "tbb*.dll" -ErrorAction SilentlyContinue | Copy-Item -Destination dist/VapourSynth-RIFE-OpenVINO-win64/
-          Copy-Item LICENSE, README.md dist/VapourSynth-RIFE-OpenVINO-win64/
-          Copy-Item -Recurse scripts dist/VapourSynth-RIFE-OpenVINO-win64/
-          Compress-Archive -Path dist/VapourSynth-RIFE-OpenVINO-win64 -DestinationPath dist/VapourSynth-RIFE-OpenVINO-win64.zip
+          $ErrorActionPreference = "Stop"
+          $D  = "dist/VapourSynth-RIFE-OpenVINO-win64"
+          $OV = "openvino/runtime/bin/intel64/Release"
+          New-Item -ItemType Directory -Force $D | Out-Null
+          Copy-Item build/Release/RIFE-OpenVINO.dll $D/
+          # Runtime DLLs needed next to the plugin (or on PATH).
+          # OpenVINO >= 2024 registers plugins statically; there is no plugins.xml any more
+          # (cache.json is its optional successor and is copied when present).
+          foreach ($f in "openvino.dll", "openvino_intel_cpu_plugin.dll", "openvino_onnx_frontend.dll", "openvino_ir_frontend.dll") {
+            Copy-Item "$OV/$f" $D/
+          }
+          if (Test-Path "$OV/cache.json") { Copy-Item "$OV/cache.json" $D/ }
+          # openvino.dll and the CPU plugin import tbb12.dll; tbbbind is loaded on demand for NUMA pinning.
+          foreach ($f in "tbb12.dll", "tbbbind_2_5.dll", "tbbmalloc.dll", "tbbmalloc_proxy.dll") {
+            if (Test-Path "openvino/runtime/3rdparty/tbb/bin/$f") { Copy-Item "openvino/runtime/3rdparty/tbb/bin/$f" $D/ }
+          }
+          if (-not (Test-Path "$D/tbb12.dll")) { throw "tbb12.dll not found in the OpenVINO archive" }
+          Copy-Item LICENSE, README.md $D/
+          Copy-Item -Recurse scripts $D/
+          Get-ChildItem $D
+          Compress-Archive -Path $D -DestinationPath dist/VapourSynth-RIFE-OpenVINO-win64.zip
+
+      - name: Smoke test packaged plugin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $D = (Resolve-Path "dist/VapourSynth-RIFE-OpenVINO-win64").Path
+          # Load the DLL with only the package directory as the search path: this fails if any
+          # OpenVINO/TBB DLL is missing from the package.
+          $sig = @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class L {
+            [DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool SetDllDirectory(string p);
+            [DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibrary(string p);
+            [DllImport("kernel32", CharSet=CharSet.Ansi)] public static extern IntPtr GetProcAddress(IntPtr h, string n);
+          }
+          "@
+          Add-Type -TypeDefinition $sig
+          [L]::SetDllDirectory($D) | Out-Null
+          $h = [L]::LoadLibrary((Join-Path $D "RIFE-OpenVINO.dll"))
+          if ($h -eq [IntPtr]::Zero) { throw "LoadLibrary failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())" }
+          if ([L]::GetProcAddress($h, "VapourSynthPluginInit2") -eq [IntPtr]::Zero) { throw "VapourSynthPluginInit2 export missing" }
+          "RIFE-OpenVINO.dll loaded OK from $D"
 
       - uses: actions/upload-artifact@v4
         with:
