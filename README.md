@@ -184,6 +184,11 @@ are `fps * factor_num / factor_den` and `num_frames * factor_num / factor_den`.
    lacks GitHub's root CA (common with python.org builds); `pip install certifi` and re-run - the script falls
    back to certifi's bundle, then to `curl.exe`, and prints further options if neither is available.
 
+### Hybrid (Windows)
+
+See [docs/Hybrid.md](docs/Hybrid.md): where to put the plugin inside a [Hybrid](https://www.selur.de/)
+installation, what to enter on Hybrid's *Vapoursynth → Custom* tab, and an integration proposal for native support.
+
 ## Compilation
 
 Requires CMake >= 3.16, a C++20 compiler and an extracted OpenVINO runtime archive (or an installed OpenVINO
